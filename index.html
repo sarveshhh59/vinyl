@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cozy Vinyl</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+:root{color-scheme:dark;--bg:#0d0a12;--ink:#f3dfb8;--panel:#2a1a22;--edge:#f2b45a;--mute:#b99a7a}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--ink)}
+body{display:flex;align-items:center;justify-content:center;overflow:hidden;font-family:"Courier New",monospace}
+#stage{position:relative;width:min(100vw,177.7vh);aspect-ratio:16/9}
+canvas{width:100%;height:100%;image-rendering:pixelated;image-rendering:crisp-edges;display:block}
+button{font:inherit;color:var(--ink);cursor:pointer}
+#search{position:absolute;right:2%;top:3%;width:clamp(24px,3.5%,36px);aspect-ratio:1;background:var(--panel);border:2px solid var(--edge);padding:16%;box-shadow:0 0 18px rgba(242,180,90,.35);opacity:.55;animation:fadein 2.5s ease .6s backwards;transition:transform .1s,opacity .3s;z-index:3}
+@keyframes fadein{from{opacity:0}to{opacity:.55}}
+#search:hover,#search.open{transform:translateY(-2px);opacity:1}
+#search svg{width:100%;height:100%;shape-rendering:crispEdges;display:block}
+#panel{position:absolute;right:2%;top:calc(3% + clamp(32px,5%,46px));width:min(340px,70%);max-height:72%;display:none;flex-direction:column;background:var(--panel);border:2px solid var(--edge);z-index:3;box-shadow:0 0 24px rgba(0,0,0,.6)}
+#panel.open{display:flex}
+#q{background:#1a0f16;border:0;border-bottom:2px solid var(--edge);color:var(--ink);font:14px "Courier New",monospace;padding:10px;outline:none}
+#list{overflow-y:auto}
+#msg{padding:12px;font-size:13px;color:var(--mute)}
+.r{display:flex;gap:8px;align-items:center;padding:6px 8px;width:100%;background:none;border:0;border-bottom:1px solid #4a2e1d;text-align:left}
+.r:hover,.r.on{background:#3d2530}
+.r img{width:48px;height:36px;object-fit:cover;image-rendering:pixelated;flex:none}
+.r b{display:block;font-size:12px;font-weight:normal;line-height:1.3;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.r i{font-size:11px;color:var(--mute);font-style:normal}
+#bar{position:absolute;left:50%;bottom:3%;transform:translateX(-50%);width:min(70%,460px);display:none;align-items:center;gap:8px;background:var(--panel);border:2px solid var(--edge);padding:6px 8px;z-index:2}
+#bar.on{display:flex}
+#bar button{background:#1a0f16;border:2px solid var(--edge);width:32px;height:28px;flex:none;font-size:13px}
+#now{flex:1;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#tv{position:fixed;left:8px;bottom:8px;width:200px;height:200px;border:3px solid var(--edge);background:#000;z-index:1;box-shadow:0 0 18px rgba(242,180,90,.25)}
+#tv iframe{width:100%;height:100%;display:block}
+@media(max-width:700px){#tv{left:50%;transform:translateX(-50%)}}
+</style>
+</head>
+<body>
+<div id="stage">
+<canvas id="c" width="192" height="108"></canvas>
+<button id="search" aria-label="Search for music"><svg viewBox="0 0 12 12" fill="#f3dfb8"><rect x="3" y="1" width="4" height="1"/><rect x="2" y="2" width="1" height="1"/><rect x="7" y="2" width="1" height="1"/><rect x="1" y="3" width="1" height="4"/><rect x="8" y="3" width="1" height="4"/><rect x="2" y="7" width="1" height="1"/><rect x="7" y="7" width="1" height="1"/><rect x="3" y="8" width="4" height="1"/><rect x="8" y="8" width="2" height="2"/><rect x="10" y="10" width="1" height="1"/></svg></button>
+<div id="panel">
+<input id="q" type="text" placeholder="Search a song, press Enter" autocomplete="off">
+<div id="list"><div id="msg">Type a song or artist.</div></div>
+</div>
+<div id="bar"><button id="pp" aria-label="Play or pause">&#9654;</button><span id="now">Pick a song</span><button id="nx" aria-label="Next">&#9197;</button></div>
+</div>
+<div id="tv"><div id="yt"></div></div>
+
+<script>
+/* ===== 1. PASTE YOUR YOUTUBE API KEY HERE ===== */
+const KEY='AIzaSyBRul6PhuQgic0zFYaNxza9-x6JVZ4fCn4';
+
+/* ===== Scene (pixel art) ===== */
+const c=document.getElementById('c'),ctx=c.getContext('2d'),W=192,H=108;
+const px=(x,y,w,h,col)=>{ctx.fillStyle=col;ctx.fillRect(x,y,w,h)};
+const stars=[[126,20],[140,18],[158,24],[132,34],[150,40],[162,16],[124,46]];
+let t=0,last=0,rot=0,speed=0,playing=false;
+function wall(){const a=[27,19,38],b=[52,30,42];
+  for(let y=0;y<76;y++){const k=Math.floor(y/76*8)/8;
+    px(0,y,W,1,`rgb(${a.map((v,i)=>Math.round(v+(b[i]-v)*k)).join(',')})`);}}
+function windowDraw(){
+  px(118,12,50,48,'#5a3a2a');px(121,15,44,42,'#101a33');px(121,15,44,14,'#14224a');
+  px(141,15,2,42,'#5a3a2a');px(121,35,44,2,'#5a3a2a');px(116,58,54,3,'#7a4d31');
+  px(154,20,5,5,'#f6e7b4');px(156,20,3,5,'#101a33');
+  stars.forEach(([x,y],i)=>{if(Math.sin(t*2+i*1.7)>-.3)px(x,y,1,1,'#f6e7b4')});}
+function table(){
+  for(let y=76;y<96;y++){const k=(y-76)/20;
+    px(0,y,W,1,`rgb(${Math.round(122-30*k)},${Math.round(77-20*k)},${Math.round(49-12*k)})`);}
+  px(0,82,W,1,'#4f3020');px(0,89,W,1,'#4f3020');
+  px(0,96,W,1,'#9a6a45');px(0,97,W,11,'#4a2e1d');px(0,102,W,1,'#3a2216');}
+function lamp(){
+  px(24,52,2,30,'#2a1a14');px(19,81,12,2,'#2a1a14');
+  [[19,13],[18,15],[17,17],[16,19],[15,21],[14,23],[13,25]].forEach((r,i)=>px(r[0],40+i*2,r[1],2,i<2?'#ffd98a':'#f2b45a'));
+  px(13,54,26,1,'#ffe9b0');}
+function glow(){
+  const f=1+Math.sin(t*3)*.03+Math.sin(t*7.3)*.02;
+  for(let i=0;i<10;i++){const r=(14+i*9)*f;ctx.fillStyle='rgba(255,165,70,.04)';
+    ctx.beginPath();ctx.ellipse(26,50,r,r*.85,0,0,7);ctx.fill();}
+  for(let i=0;i<6;i++){ctx.fillStyle='rgba(255,170,80,.035)';
+    ctx.beginPath();ctx.ellipse(60,86,30+i*14,4+i*2,0,0,7);ctx.fill();}}
+function mug(){
+  px(146,74,11,10,'#e8d5b0');px(146,74,11,1,'#fff3d4');px(157,76,3,1,'#e8d5b0');px(159,77,1,3,'#e8d5b0');px(157,80,3,1,'#e8d5b0');
+  px(147,75,9,2,'#4a2a18');
+  for(let i=0;i<5;i++){const x=151+Math.round(Math.sin(t*1.5+i)*1.5);px(x,71-i*3,1,2,`rgba(255,240,220,${.55-i*.1})`);}}
+function plant(){
+  px(168,74,10,8,'#b5593a');px(167,73,12,2,'#c96a47');
+  const g=['#3f7d4a','#58a35f'];
+  [[172,68,2,5],[168,66,2,7],[176,67,2,6],[170,63,2,5],[174,62,2,6]].forEach((l,i)=>px(l[0],l[1],l[2],l[3],g[i%2]));}
+function vinyl(){
+  const cx=96,cy=86,rx=44,ry=12;
+  ctx.fillStyle='rgba(0,0,0,.4)';ctx.beginPath();ctx.ellipse(99,cy+3,rx+2,ry+1,0,0,7);ctx.fill();
+  ctx.fillStyle='#050505';ctx.beginPath();ctx.ellipse(cx,cy+2,rx,ry,0,0,7);ctx.fill();
+  const TAU=Math.PI*2,wrap=v=>{v%=TAU;if(v>Math.PI)v-=TAU;if(v<-Math.PI)v+=TAU;return v};
+  for(let y=cy-ry;y<=cy+ry;y++)for(let x=cx-rx;x<=cx+rx;x++){
+    const dx=(x+.5-cx)/rx,dy=(y+.5-cy)/ry,r=Math.hypot(dx,dy);if(r>1)continue;
+    const a=Math.atan2(dy,dx),ar=a+rot;let col;
+    if(r<.05)col='#1a1008';
+    else if(r<.34){col=r>.3?'#f0dcae':'#e0a24a';if(r>.13&&Math.abs(wrap(ar))<.3)col='#7a2e1c';}
+    else{col=(Math.floor(r*42)%3===0)?'#1b181d':'#121014';
+      if(r>.97)col='#2a252b';
+      if(Math.cos(2*a-.9)>.93)col='#3d3544';
+      for(const k of[.5,2.2,4.1])if(r>.4&&Math.abs(wrap(ar-k))<.02)col='#322b35';}
+    px(x,y,1,1,col);}}
+function vignette(){ctx.lineWidth=2;ctx.strokeStyle='rgba(8,4,14,.07)';
+  for(let i=0;i<8;i++)ctx.strokeRect(i*2+1,i*2+1,W-i*4-2,H-i*4-2);}
+function frame(ts){
+  requestAnimationFrame(frame);
+  if(ts-last<33)return;last=ts;t+=.05;
+  speed+=((playing?1:0)-speed)*.04;rot+=.05*speed;
+  wall();windowDraw();table();lamp();mug();plant();vinyl();glow();vignette();}
+requestAnimationFrame(frame);
+
+/* ===== Search + player ===== */
+const $=id=>document.getElementById(id);
+let queue=[],idx=-1,player=null,ready=false;
+const dec=s=>{const x=document.createElement('textarea');x.innerHTML=s;return x.value};
+function msg(text){const l=$('list');l.textContent='';const d=document.createElement('div');d.id='msg';d.textContent=text;l.appendChild(d);}
+
+$('search').addEventListener('click',()=>{
+  const open=$('panel').classList.toggle('open');$('search').classList.toggle('open',open);
+  if(open)$('q').focus();});
+$('q').addEventListener('keydown',e=>{if(e.key==='Enter'&&$('q').value.trim())search($('q').value.trim());});
+
+async function search(q){
+  if(KEY.startsWith('PASTE')){msg('Add your YouTube API key in index.html first (see the top of the script).');return;}
+  msg('Searching...');
+  const ck='s:'+q.toLowerCase();
+  try{const cached=localStorage.getItem(ck);if(cached){show(JSON.parse(cached));return;}}catch(e){}
+  try{
+    const u=new URL('https://www.googleapis.com/youtube/v3/search');
+    Object.entries({part:'snippet',type:'video',videoCategoryId:'10',videoEmbeddable:'true',maxResults:'8',q,key:KEY})
+      .forEach(([k,v])=>u.searchParams.set(k,v));
+    const d=await (await fetch(u.toString())).json();
+    if(d.error){msg(d.error.code===403?'Search limit reached for today, or your key is not allowed on this website. Try again tomorrow.':'Error: '+d.error.message);return;}
+    const items=(d.items||[]).map(i=>({id:i.id.videoId,title:dec(i.snippet.title),ch:dec(i.snippet.channelTitle),th:i.snippet.thumbnails.default.url}));
+    try{localStorage.setItem(ck,JSON.stringify(items));}catch(e){}
+    show(items);
+  }catch(e){msg('Could not reach YouTube ('+(e&&e.message||'unknown')+'). If this page is open inside a preview, open it from your hosted link instead.');}
+}
+function show(items){
+  queue=items;idx=-1;const l=$('list');l.textContent='';
+  if(!items.length){msg('No results. Try different words.');return;}
+  items.forEach((it,i)=>{
+    const b=document.createElement('button');b.className='r';
+    const im=document.createElement('img');im.src=it.th;im.alt='';
+    const w=document.createElement('div');
+    const t1=document.createElement('b');t1.textContent=it.title;
+    const t2=document.createElement('i');t2.textContent=it.ch;
+    w.append(t1,t2);b.append(im,w);b.addEventListener('click',()=>play(i));l.appendChild(b);});
+}
+function play(i){
+  if(!ready){$('now').textContent='Player is still loading, try again';$('bar').classList.add('on');return;}
+  if(i<0||i>=queue.length)return;
+  idx=i;player.loadVideoById(queue[i].id);
+  $('now').textContent=queue[i].title;$('bar').classList.add('on');
+  [...$('list').children].forEach((el,k)=>el.classList.toggle('on',k===i));
+}
+$('pp').addEventListener('click',()=>{
+  if(!ready)return;
+  if(idx<0&&queue.length)return play(0);
+  playing?player.pauseVideo():player.playVideo();});
+$('nx').addEventListener('click',()=>play(idx+1<queue.length?idx+1:0));
+
+window.onYouTubeIframeAPIReady=()=>{
+  player=new YT.Player('yt',{width:'200',height:'200',playerVars:{playsinline:1,rel:0,modestbranding:1},
+    events:{
+      onReady:()=>{ready=true;},
+      onStateChange:e=>{
+        playing=e.data===1;$('pp').innerHTML=playing?'&#10074;&#10074;':'&#9654;';
+        if(e.data===0)play(idx+1<queue.length?idx+1:0);},
+      onError:()=>{$('now').textContent='That one cannot be played here, skipping...';
+        setTimeout(()=>play(idx+1<queue.length?idx+1:0),1200);}}});};
+const s=document.createElement('script');s.src='https://www.youtube.com/iframe_api';document.head.appendChild(s);
+</script>
+</body>
+</html>
