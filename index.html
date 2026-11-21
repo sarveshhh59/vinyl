@@ -147,7 +147,7 @@ requestAnimationFrame(frame);
 
 /* ===== Search + player ===== */
 const $=id=>document.getElementById(id);
-let queue=[],idx=-1,player=null,ready=false,moreP=null,vol=80,wt=0,upShown=false;
+let queue=[],idx=-1,player=null,ready=false,moreP=null,vol=80,wt=0,upShown=false,results=[],radio=[],played=[],noMoreUntil=0;
 const svg=b=>`<svg viewBox="0 0 12 12" fill="currentColor" shape-rendering="crispEdges">${b}</svg>`;
 const I={
   prev:svg('<rect x="1" y="2" width="2" height="8"/><polygon points="10,2 10,10 4,6"/>'),
@@ -168,9 +168,9 @@ $('search').addEventListener('mouseleave',()=>{iaT=$('panel').classList.contains
 document.addEventListener('click',e=>{if(!$('panel').contains(e.target))setPanel(false);});
 $('q').addEventListener('keydown',e=>{if(e.key==='Enter'&&$('q').value.trim())search($('q').value.trim());});
 
-async function fetchItems(q){
+async function fetchItems(q,max=10){
   const u=new URL('https://www.googleapis.com/youtube/v3/search');
-  Object.entries({part:'snippet',type:'video',videoCategoryId:'10',videoEmbeddable:'true',maxResults:'10',q,key:KEY})
+  Object.entries({part:'snippet',type:'video',videoCategoryId:'10',videoEmbeddable:'true',maxResults:String(max),q,key:KEY})
     .forEach(([k,v])=>u.searchParams.set(k,v));
   const d=await (await fetch(u.toString())).json();
   if(d.error){const e=new Error(d.error.message);e.code=d.error.code;throw e;}
@@ -185,7 +185,7 @@ async function search(q){
   catch(e){msg(e.code===403?'Search limit reached for today, or your key is not allowed on this website. Try again tomorrow.':'Could not reach YouTube ('+(e.message||'unknown')+').');}
 }
 function show(items){
-  queue=items.slice();idx=-1;const l=$('list');l.textContent='';
+  results=items.slice();const l=$('list');l.textContent='';
   if(!items.length){msg('No results. Try different words.');return;}
   items.forEach((it,i)=>{
     const b=document.createElement('button');b.className='r';
@@ -193,33 +193,76 @@ function show(items){
     const w=document.createElement('div');
     const t1=document.createElement('b');t1.textContent=it.title;
     const t2=document.createElement('i');t2.textContent=it.ch;
-    w.append(t1,t2);b.append(im,w);b.addEventListener('click',()=>{play(i);setPanel(false);});l.appendChild(b);});
+    w.append(t1,t2);b.append(im,w);b.addEventListener('click',()=>{startSession(results[i]);setPanel(false);});l.appendChild(b);});
 }
 
-/* Endless mode: when the queue runs low, search for songs like the current one */
-const clean=t=>t.replace(/\(.*?\)|\[.*?\]|official|video|audio|lyrics?|\bhd\b|\b4k\b|\bmv\b/gi,' ').replace(/\s+/g,' ').trim();
+/* Endless mode: after your song, play different songs from related artists (Deezer "radio" finds them, YouTube plays them) */
+const norm=s=>s.toLowerCase().replace(/\(.*?\)|\[.*?\]/g,' ').replace(/\b(official|video|audio|lyrics?|hd|4k|mv|music|ft|feat)\b.*$/,'').replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+const songKey=t=>{const p=t.split(/\s[-–—|]\s/);return norm(p.length>1?p.slice(1).join(' '):t)};
+const remember=t=>{played.push(songKey(t));};
+const isPlayed=t=>{const k=songKey(t);return played.some(p=>p===k||(k.length>3&&p.length>3&&(p.includes(k)||k.includes(p))));};
+const shuffle=a=>{a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;};
+function artistOf(it){
+  if(it.artistName)return it.artistName;
+  const p=it.title.replace(/\(.*?\)|\[.*?\]/g,' ').split(/\s[-–—|]\s/);
+  return (p.length>1?p[0]:it.ch).replace(/\s*-\s*topic$/i,'').replace(/vevo$/i,'').replace(/\s+(ft|feat)\.?.*$/i,'').trim();
+}
+function dz(path){
+  return new Promise((res,rej)=>{
+    const cb='dz'+Math.random().toString(36).slice(2),sc=document.createElement('script');
+    const done=()=>{delete window[cb];sc.remove();clearTimeout(to);};
+    const to=setTimeout(()=>{done();rej(new Error('timeout'));},6000);
+    window[cb]=d=>{done();res(d);};
+    sc.onerror=()=>{done();rej(new Error('blocked'));};
+    sc.src='https://api.deezer.com/'+path+(path.includes('?')?'&':'?')+'output=jsonp&callback='+cb;
+    document.head.appendChild(sc);});
+}
+async function refill(){
+  const cur=queue[idx];let aid=cur.aid;
+  try{
+    if(!aid){const r=await dz('search/artist?q='+encodeURIComponent(artistOf(cur))+'&limit=1');aid=r.data&&r.data[0]&&r.data[0].id;}
+    if(aid){
+      let tr=(await dz('artist/'+aid+'/radio?limit=40')).data||[];
+      if(tr.length<5){
+        const rel=(await dz('artist/'+aid+'/related?limit=10')).data||[];
+        for(const p of shuffle(rel).slice(0,3))tr=tr.concat((await dz('artist/'+p.id+'/top?limit=8')).data||[]);}
+      const other=tr.filter(t=>t.artist&&t.artist.id!==aid);
+      if(other.length>=5)tr=other;
+      radio=shuffle(tr.filter(t=>t.artist).map(t=>({artist:t.artist.name,title:t.title_short||t.title,aid:t.artist.id})));
+      if(radio.length)return;
+    }
+  }catch(e){}
+  try{radio=shuffle((await fetchItems(artistOf(cur),10)).map(x=>({yt:x})));}catch(e){}
+}
+async function addNext(){
+  if(idx+1<queue.length)return true;
+  if(radio.length<3)await refill();
+  while(radio.length){
+    const c=radio.pop();
+    if(c.yt){if(!isPlayed(c.yt.title)){queue.push(c.yt);remember(c.yt.title);return true;}continue;}
+    if(isPlayed(c.title))continue;
+    const items=await fetchItems(c.artist+' '+c.title,3);
+    const m=items.find(x=>norm(x.title).includes(norm(c.title)))||items[0];
+    if(m){m.aid=c.aid;m.artistName=c.artist;queue.push(m);remember(c.title);return true;}
+  }
+  return false;
+}
 function more(){
-  if(moreP||idx<0||KEY.startsWith('PASTE'))return moreP||Promise.resolve();
-  moreP=(async()=>{
-    try{const cur=queue[idx];
-      for(const q of [clean(cur.title)+' '+cur.ch,cur.ch+' songs']){
-        const have=new Set(queue.map(x=>x.id));
-        const add=(await fetchItems(q)).filter(x=>!have.has(x.id));
-        if(add.length){queue.push(...add);break;}}
-    }catch(e){}
-  })().finally(()=>{moreP=null;});
+  if(moreP)return moreP;
+  if(idx<0||Date.now()<noMoreUntil||KEY.startsWith('PASTE'))return Promise.resolve();
+  moreP=(async()=>{let ok=false;try{ok=await addNext();}catch(e){}if(!ok)noMoreUntil=Date.now()+60000;})().finally(()=>{moreP=null;});
   return moreP;
 }
 async function next(){
   if(idx+1>=queue.length)await more();
   play(idx+1<queue.length?idx+1:0);
 }
+function startSession(item){queue=[item];radio=[];played=[];noMoreUntil=0;remember(item.title);play(0);}
 function play(i){
   if(!ready){msg('Player is still loading, try again in a moment.');return;}
   if(i<0||i>=queue.length)return;
   idx=i;player.loadVideoById(queue[i].id);hideUp();
   $('bar').classList.add('has');wake();
-  if(i>=queue.length-3)more();
 }
 
 /* Up next preview (only in the last seconds of a song) + progress line */
@@ -228,10 +271,11 @@ setInterval(()=>{
   if(!ready||!playing||idx<0)return;
   const d=player.getDuration(),c=player.getCurrentTime();
   $('pf').style.width=(d>0?Math.min(100,c/d*100):0)+'%';
-  if(d>20&&d-c<=12&&d-c>0){
+  const rem=d-c;
+  if(d>20&&rem<=30&&!queue[idx+1])more();
+  if(d>20&&rem<=12&&rem>0){
     const n=queue[idx+1];
-    if(n){if(!upShown){upShown=true;$('upimg').src=n.th;$('uptxt').textContent=n.title;$('up').classList.add('on');}}
-    else more();
+    if(n&&!upShown){upShown=true;$('upimg').src=n.th;$('uptxt').textContent=n.title;$('up').classList.add('on');}
   }else if(upShown)hideUp();
 },500);
 
