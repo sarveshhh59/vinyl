@@ -147,7 +147,7 @@ requestAnimationFrame(frame);
 
 /* ===== Search + player ===== */
 const $=id=>document.getElementById(id);
-let queue=[],idx=-1,player=null,ready=false,moreP=null,vol=80,wt=0,upShown=false,results=[],radio=[],played=[],noMoreUntil=0;
+let queue=[],idx=-1,player=null,ready=false,moreP=null,vol=80,wt=0,upShown=false,results=[],radio=[],played=[],noMoreUntil=0,session={seed:null};
 const svg=b=>`<svg viewBox="0 0 12 12" fill="currentColor" shape-rendering="crispEdges">${b}</svg>`;
 const I={
   prev:svg('<rect x="1" y="2" width="2" height="8"/><polygon points="10,2 10,10 4,6"/>'),
@@ -217,28 +217,54 @@ function dz(path){
     sc.src='https://api.deezer.com/'+path+(path.includes('?')?'&':'?')+'output=jsonp&callback='+cb;
     document.head.appendChild(sc);});
 }
+const lite=t=>t.toLowerCase().replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+const stripT=t=>t.replace(/\(.*?\)|\[.*?\]/g,' ').replace(/\b(official|full|video|song|audio|lyrical|lyrics?|hd|4k|mv|music)\b/gi,' ').replace(/\s+/g,' ').trim();
+const dzCache={};
+const dzc=async p=>dzCache[p]||(dzCache[p]=await dz(p));
+/* Step 1: work out exactly who the song is by (works for "Artist - Song" and Bollywood "Song | Movie | Singer" titles) */
+async function identify(item){
+  const t=stripT(item.title),segs=t.split(/\s*\|\s*|\s[-–—]\s/).filter(Boolean);
+  const qs=[...new Set([segs[0]+' '+segs[segs.length-1],t.replace(/[|–—-]/g,' ').replace(/\s+/g,' ').slice(0,70),segs[0]].filter(Boolean))];
+  const hay=lite(item.title+' '+item.ch);let first=null;
+  for(const q of qs){
+    const tr=((await dz('search/track?q='+encodeURIComponent(q)+'&limit=5')).data||[]).filter(x=>x.artist);
+    if(!first&&tr[0])first=tr[0];
+    const m=tr.find(x=>lite(x.artist.name).length>2&&hay.includes(lite(x.artist.name)));
+    if(m)return {aid:m.artist.id,name:m.artist.name};
+  }
+  return first?{aid:first.artist.id,name:first.artist.name}:null;
+}
+/* Step 2: build a pool of candidates from the "fans also like" graph around the song you started with */
 async function refill(){
-  const cur=queue[idx];let aid=cur.aid;
   try{
-    if(!aid){const r=await dz('search/artist?q='+encodeURIComponent(artistOf(cur))+'&limit=1');aid=r.data&&r.data[0]&&r.data[0].id;}
-    if(aid){
-      let tr=(await dz('artist/'+aid+'/radio?limit=40')).data||[];
-      if(tr.length<5){
-        const rel=(await dz('artist/'+aid+'/related?limit=10')).data||[];
-        for(const p of shuffle(rel).slice(0,3))tr=tr.concat((await dz('artist/'+p.id+'/top?limit=8')).data||[]);}
-      const other=tr.filter(t=>t.artist&&t.artist.id!==aid);
-      if(other.length>=5)tr=other;
-      radio=shuffle(tr.filter(t=>t.artist).map(t=>({artist:t.artist.name,title:t.title_short||t.title,aid:t.artist.id})));
-      if(radio.length)return;
+    if(!session.seed){session.seed=await identify(queue[0]);
+      if(session.seed){queue[0].aid=session.seed.aid;queue[0].artistName=session.seed.name;}}
+    const seed=session.seed;
+    if(seed){
+      const cur=queue[idx],anchors=[seed.aid];
+      if(cur.aid&&cur.aid!==seed.aid&&Math.random()<.35)anchors.push(cur.aid); /* sometimes drift toward the current song */
+      let pool=[];
+      for(const aid of anchors){
+        const rel=((await dzc('artist/'+aid+'/related?limit=20')).data||[])
+          .map((a,i)=>({a,k:i+Math.random()*8})).sort((x,y)=>x.k-y.k).slice(0,6).map(x=>x.a); /* closer matches more likely */
+        for(const a of rel)((await dzc('artist/'+a.id+'/top?limit=10')).data||[])
+          .forEach(t=>pool.push({artist:a.name,aid:a.id,title:t.title_short||t.title}));
+      }
+      ((await dzc('artist/'+seed.aid+'/top?limit=15')).data||[]).slice(0,8)
+        .forEach(t=>pool.push({artist:seed.name,aid:seed.aid,title:t.title_short||t.title}));
+      pool=pool.filter(c=>!isPlayed(c.title));
+      if(pool.length>=3){radio=shuffle(pool);return;}
     }
   }catch(e){}
-  try{radio=shuffle((await fetchItems(artistOf(cur),10)).map(x=>({yt:x})));}catch(e){}
+  try{radio=shuffle((await fetchItems(artistOf(queue[idx]),10)).map(x=>({yt:x})));}catch(e){}
 }
 async function addNext(){
   if(idx+1<queue.length)return true;
   if(radio.length<3)await refill();
   while(radio.length){
-    const c=radio.pop();
+    const recent=queue.slice(-2).map(x=>x.artistName);
+    let k=radio.findIndex(c=>c.yt||!recent.includes(c.artist));if(k<0)k=0; /* no same artist back to back */
+    const c=radio.splice(k,1)[0];
     if(c.yt){if(!isPlayed(c.yt.title)){queue.push(c.yt);remember(c.yt.title);return true;}continue;}
     if(isPlayed(c.title))continue;
     const items=await fetchItems(c.artist+' '+c.title,3);
@@ -257,7 +283,7 @@ async function next(){
   if(idx+1>=queue.length)await more();
   play(idx+1<queue.length?idx+1:0);
 }
-function startSession(item){queue=[item];radio=[];played=[];noMoreUntil=0;remember(item.title);play(0);}
+function startSession(item){queue=[item];radio=[];played=[];session={seed:null};noMoreUntil=0;remember(item.title);play(0);}
 function play(i){
   if(!ready){msg('Player is still loading, try again in a moment.');return;}
   if(i<0||i>=queue.length)return;
