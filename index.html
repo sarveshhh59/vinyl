@@ -141,7 +141,7 @@ function icon(){const x=W-17,y=3+inset;ctx.globalAlpha=ia;
 function frame(ts){
   requestAnimationFrame(frame);
   if(ts-last<33)return;last=ts;t+=.05;
-  speed+=((playing?1:0)-speed)*.04;rot+=.05*speed;ia+=(iaT-ia)*.04;lampL+=((lampOn?1:0)-lampL)*.12;
+  speed+=((playing?1:0)-speed)*.04;rot+=.05*speed;if(vg)vg.gain.value=VINYL_VOLUME*speed*speed;ia+=(iaT-ia)*.04;lampL+=((lampOn?1:0)-lampL)*.12;
   ctx.setTransform(1,0,0,1,0,oy);wall();windowDraw();fireplace();table();lamp();mug();plant();vinyl();ctx.fillStyle=`rgba(10,6,24,${.3*(1-lampL)})`;ctx.fillRect(0,-oy,W,H);glow();fireGlow();ctx.setTransform(1,0,0,1,0,0);vignette();icon();}
 requestAnimationFrame(frame);
 
@@ -308,20 +308,58 @@ window.onYouTubeIframeAPIReady=()=>{
     events:{
       onReady:()=>{ready=true;player.setVolume(vol);},
       onStateChange:e=>{
-        playing=e.data===1;$('bpp').innerHTML=playing?I.pause:I.play;
+        const was=playing;playing=e.data===1;if(playing&&!was)needle();$('bpp').innerHTML=playing?I.pause:I.play;
         if(e.data===0){hideUp();next();}
         if(e.data===1||e.data===2)wake();},
       onError:()=>{setTimeout(next,1200);}}});};
 const s=document.createElement('script');s.src='https://www.youtube.com/iframe_api';document.head.appendChild(s);
 
 /* ===== Fire sound (made in code, no files). Keep low so the music stays on top ===== */
+/* ===== Vinyl surface sound: hiss, dust crackle, a soft thump each turn, needle drop. Only plays while the record spins ===== */
+const VINYL_VOLUME=0.5; /* 0 = off, 1 = louder. Lower it if the crackle is too much. */
+let vg=null,needle=()=>{};
+function startVinyl(){
+  vg=ac.createGain();vg.gain.value=0;vg.connect(ac.destination);
+  const ng=ac.createGain();ng.gain.value=VINYL_VOLUME;ng.connect(ac.destination);
+  const len=ac.sampleRate*2,buf=ac.createBuffer(1,len,ac.sampleRate),d=buf.getChannelData(0);
+  for(let i=0;i<len;i++)d[i]=Math.random()*2-1;
+  const hiss=ac.createBufferSource();hiss.buffer=buf;hiss.loop=true;
+  const hp=ac.createBiquadFilter();hp.type='highpass';hp.frequency.value=3000;
+  const lp=ac.createBiquadFilter();lp.type='lowpass';lp.frequency.value=9000;
+  const hg=ac.createGain();hg.gain.value=.05;
+  hiss.connect(hp);hp.connect(lp);lp.connect(hg);hg.connect(vg);hiss.start();
+  const tick=(v,f,dur,out)=>{
+    const s=ac.createBufferSource();s.buffer=buf;
+    const bp=ac.createBiquadFilter();bp.type='bandpass';bp.frequency.value=f;bp.Q.value=.9;
+    const g=ac.createGain(),n=ac.currentTime;
+    g.gain.setValueAtTime(v,n);g.gain.exponentialRampToValueAtTime(.0001,n+dur);
+    s.connect(bp);bp.connect(g);g.connect(out||vg);s.start(n,Math.random()*1.5,dur+.02);};
+  (function crackle(){
+    if(speed>.2){
+      tick(.1+Math.random()*.3,2000+Math.random()*5000,.004+Math.random()*.012);
+      if(Math.random()<.12)tick(.45+Math.random()*.3,1200+Math.random()*2000,.02);}
+    setTimeout(crackle,70+Math.random()*(Math.random()<.25?800:280));
+  })();
+  (function thump(){
+    if(speed>.2){const o=ac.createOscillator(),g=ac.createGain(),n=ac.currentTime;
+      o.frequency.value=55;g.gain.setValueAtTime(.2,n);g.gain.exponentialRampToValueAtTime(.0001,n+.09);
+      o.connect(g);g.connect(vg);o.start(n);o.stop(n+.1);}
+    setTimeout(thump,1800);
+  })();
+  needle=()=>{
+    const o=ac.createOscillator(),g=ac.createGain(),n=ac.currentTime;
+    o.type='sine';o.frequency.setValueAtTime(90,n);o.frequency.exponentialRampToValueAtTime(40,n+.15);
+    g.gain.setValueAtTime(.5,n);g.gain.exponentialRampToValueAtTime(.0001,n+.2);
+    o.connect(g);g.connect(ng);o.start(n);o.stop(n+.25);
+    for(let i=0;i<5;i++)setTimeout(()=>tick(.35,2500,.01,ng),40+i*55);};
+}
 const FIRE_VOLUME=0.5; /* 0 = silent, 1 = louder. Lower it if you want it quieter. */
 let ac=null,fireGain=null,fireOn=true;
 try{fireOn=localStorage.getItem('fire')!=='off';}catch(e){}
 function startFire(){
   if(ac){if(ac.state==='suspended')ac.resume();return;}
   const AC=window.AudioContext||window.webkitAudioContext;if(!AC)return;
-  ac=new AC();fireGain=ac.createGain();fireGain.gain.value=fireOn?FIRE_VOLUME*.5:0;fireGain.connect(ac.destination);
+  ac=new AC();startVinyl();fireGain=ac.createGain();fireGain.gain.value=fireOn?FIRE_VOLUME*.5:0;fireGain.connect(ac.destination);
   const len=ac.sampleRate*2,buf=ac.createBuffer(1,len,ac.sampleRate),d=buf.getChannelData(0);
   let last=0;for(let i=0;i<len;i++){last=(last+.02*(Math.random()*2-1))/1.02;d[i]=last*3.5;}
   const rum=ac.createBufferSource();rum.buffer=buf;rum.loop=true;
