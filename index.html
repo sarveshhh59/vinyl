@@ -24,13 +24,13 @@ button{font:inherit;color:var(--ink);cursor:pointer}
 .r b{display:block;font-size:12px;font-weight:normal;line-height:1.3;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 .r i{font-size:11px;color:var(--mute);font-style:normal}
 #tv{position:fixed;left:0;bottom:0;width:200px;height:200px;opacity:0;pointer-events:none;z-index:-1}#tv iframe{width:100%;height:100%}
-#hit{position:absolute;z-index:2;cursor:pointer;-webkit-tap-highlight-color:transparent}
+#hit,#fire,#lamp{position:absolute;z-index:2;cursor:pointer;-webkit-tap-highlight-color:transparent}
 </style>
 </head>
 <body>
 <div id="stage">
 <canvas id="c" width="192" height="108"></canvas>
-<button id="search" aria-label="Search for music"></button><div id="hit" aria-label="Play or pause"></div>
+<button id="search" aria-label="Search for music"></button><div id="hit" aria-label="Play or pause"></div><div id="fire" aria-label="Fire sound on or off"></div><div id="lamp" aria-label="Lamp on or off"></div>
 <div id="panel">
 <input id="q" type="text" placeholder="Search a song, press Enter" autocomplete="off">
 <div id="list"><div id="msg">Type a song or artist.</div></div>
@@ -47,7 +47,7 @@ const KEY='AIzaSyBRul6PhuQgic0zFYaNxza9-x6JVZ4fCn4';
 const c=document.getElementById('c'),ctx=c.getContext('2d'),W=192;let H=108;
 const px=(x,y,w,h,col)=>{ctx.fillStyle=col;ctx.fillRect(x,y,w,h)};
 const stars=[[126,20],[140,18],[158,24],[132,34],[150,40],[162,16],[124,46]];
-let t=0,last=0,rot=0,speed=0,playing=false,ia=0,iaT=.55,oy=0,inset=0;
+let t=0,last=0,rot=0,speed=0,playing=false,ia=0,iaT=.55,oy=0,inset=0,lampL=1,lampOn=true;
 function wall(){const a=[27,19,38],b=[52,30,42];
   for(let y=-oy;y<76;y++){const k=Math.max(0,Math.floor(y/76*8)/8);
     px(0,y,W,1,`rgb(${a.map((v,i)=>Math.round(v+(b[i]-v)*k)).join(',')})`);}}
@@ -61,15 +61,16 @@ function table(){
     px(0,y,W,1,`rgb(${Math.round(122-30*k)},${Math.round(77-20*k)},${Math.round(49-12*k)})`);}
   px(0,82,W,1,'#4f3020');px(0,89,W,1,'#4f3020');
   px(0,96,W,1,'#9a6a45');px(0,97,W,H,'#4a2e1d');px(0,102,W,1,'#3a2216');}
+const mix=(a,b,k)=>{const p=h=>[1,3,5].map(i=>parseInt(h.substr(i,2),16));const x=p(a),y=p(b);return `rgb(${x.map((v,i)=>Math.round(v+(y[i]-v)*k)).join(',')})`;};
 function lamp(){
   px(24,52,2,30,'#2a1a14');px(19,81,12,2,'#2a1a14');
-  [[19,13],[18,15],[17,17],[16,19],[15,21],[14,23],[13,25]].forEach((r,i)=>px(r[0],40+i*2,r[1],2,i<2?'#ffd98a':'#f2b45a'));
-  px(13,54,26,1,'#ffe9b0');}
+  [[19,13],[18,15],[17,17],[16,19],[15,21],[14,23],[13,25]].forEach((r,i)=>px(r[0],40+i*2,r[1],2,mix('#8a7358',i<2?'#ffd98a':'#f2b45a',lampL)));
+  px(13,54,26,1,mix('#8f7b63','#ffe9b0',lampL));}
 function glow(){
   const f=1+Math.sin(t*3)*.03+Math.sin(t*7.3)*.02;
-  for(let i=0;i<10;i++){const r=(14+i*9)*f;ctx.fillStyle='rgba(255,165,70,.04)';
+  for(let i=0;i<10;i++){const r=(14+i*9)*f;ctx.fillStyle=`rgba(255,165,70,${.04*lampL})`;
     ctx.beginPath();ctx.ellipse(26,50,r,r*.85,0,0,7);ctx.fill();}
-  for(let i=0;i<6;i++){ctx.fillStyle='rgba(255,170,80,.035)';
+  for(let i=0;i<6;i++){ctx.fillStyle=`rgba(255,170,80,${.035*lampL})`;
     ctx.beginPath();ctx.ellipse(60,86,30+i*14,4+i*2,0,0,7);ctx.fill();}}
 function mug(){
   px(146,74,11,10,'#e8d5b0');px(146,74,11,1,'#fff3d4');px(157,76,3,1,'#e8d5b0');px(159,77,1,3,'#e8d5b0');px(157,80,3,1,'#e8d5b0');
@@ -96,6 +97,28 @@ function vinyl(){
     px(x,y,1,1,col);}}
 function vignette(){ctx.lineWidth=2;ctx.strokeStyle='rgba(8,4,14,.07)';
   for(let i=0;i<8;i++)ctx.strokeRect(i*2+1,i*2+1,W-i*4-2,H-i*4-2);}
+function fireplace(){
+  px(58,38,48,4,'#4a3636');px(58,38,48,1,'#6a5050');
+  px(62,42,40,34,'#6b3a2e');
+  for(let y=44;y<76;y+=4){px(62,y,40,1,'#4a2820');
+    for(let x=62+((y/4)%2?0:5);x<102;x+=10)px(x,y,1,4,'#4a2820');}
+  px(69,51,26,1,'#3a1c14');px(70,52,24,24,'#1a0c08');
+  px(72,72,20,3,'#4a2a18');px(74,70,16,3,'#5e3a22');px(72,72,20,1,'#6e4630');
+  const base=71;
+  for(let x=72;x<92;x+=2){
+    const d=1-Math.abs(x+1-82)/11;
+    const h=Math.max(2,Math.round((3+13*d)*(.75+.25*Math.sin(t*6+x*1.3))+Math.sin(t*11+x)*1.5));
+    px(x,base-h,2,h,'#d9501f');
+    const h2=Math.round(h*.65);px(x,base-h2,2,h2,'#f2a03a');
+    const h3=Math.round(h*.35);px(x,base-h3,2,h3,'#ffe08a');}
+  for(let i=0;i<4;i++){const p=(t*.7+i*.27)%1;
+    px(76+i*5+Math.round(Math.sin(t*3+i*2)*2),Math.round(66-p*18),1,1,`rgba(255,190,90,${1-p})`);}
+}
+function fireGlow(){
+  const f=1+Math.sin(t*9)*.05+Math.sin(t*5.3)*.04;
+  for(let i=0;i<7;i++){ctx.fillStyle='rgba(255,110,40,.035)';ctx.beginPath();ctx.ellipse(82,64,(10+i*8)*f,(8+i*6)*f,0,0,7);ctx.fill();}
+  ctx.fillStyle='rgba(255,120,50,.05)';ctx.beginPath();ctx.ellipse(96,88,60*f,10,0,0,7);ctx.fill();
+}
 function icon(){const x=W-17,y=3+inset;ctx.globalAlpha=ia;
   ctx.fillStyle='rgba(255,170,70,.18)';ctx.fillRect(x+1,y+1,9,9);
   [[3,1,4,1],[2,2,1,1],[7,2,1,1],[1,3,1,4],[8,3,1,4],[2,7,1,1],[7,7,1,1],[3,8,4,1],[8,8,2,2],[10,10,1,1]].forEach(r=>px(x+r[0],y+r[1],r[2],r[3],'#f3dfb8'));
@@ -103,8 +126,8 @@ function icon(){const x=W-17,y=3+inset;ctx.globalAlpha=ia;
 function frame(ts){
   requestAnimationFrame(frame);
   if(ts-last<33)return;last=ts;t+=.05;
-  speed+=((playing?1:0)-speed)*.04;rot+=.05*speed;ia+=(iaT-ia)*.04;
-  ctx.setTransform(1,0,0,1,0,oy);wall();windowDraw();table();lamp();mug();plant();vinyl();glow();ctx.setTransform(1,0,0,1,0,0);vignette();icon();}
+  speed+=((playing?1:0)-speed)*.04;rot+=.05*speed;ia+=(iaT-ia)*.04;lampL+=((lampOn?1:0)-lampL)*.12;
+  ctx.setTransform(1,0,0,1,0,oy);wall();windowDraw();fireplace();table();lamp();mug();plant();vinyl();ctx.fillStyle=`rgba(10,6,24,${.3*(1-lampL)})`;ctx.fillRect(0,-oy,W,H);glow();fireGlow();ctx.setTransform(1,0,0,1,0,0);vignette();icon();}
 requestAnimationFrame(frame);
 
 /* ===== Search + player ===== */
@@ -166,6 +189,39 @@ window.onYouTubeIframeAPIReady=()=>{
       onError:()=>{
         setTimeout(()=>play(idx+1<queue.length?idx+1:0),1200);}}});};
 const s=document.createElement('script');s.src='https://www.youtube.com/iframe_api';document.head.appendChild(s);
+/* ===== Fire sound (made in code, no files). Keep low so the music stays on top ===== */
+const FIRE_VOLUME=0.5; /* 0 = silent, 1 = louder. Lower it if you want it quieter. */
+let ac=null,fireGain=null,fireOn=true;
+try{fireOn=localStorage.getItem('fire')!=='off';}catch(e){}
+function startFire(){
+  if(ac){if(ac.state==='suspended')ac.resume();return;}
+  const AC=window.AudioContext||window.webkitAudioContext;if(!AC)return;
+  ac=new AC();fireGain=ac.createGain();fireGain.gain.value=fireOn?FIRE_VOLUME*.5:0;fireGain.connect(ac.destination);
+  const len=ac.sampleRate*2,buf=ac.createBuffer(1,len,ac.sampleRate),d=buf.getChannelData(0);
+  let last=0;for(let i=0;i<len;i++){last=(last+.02*(Math.random()*2-1))/1.02;d[i]=last*3.5;}
+  const rum=ac.createBufferSource();rum.buffer=buf;rum.loop=true;
+  const lp=ac.createBiquadFilter();lp.type='lowpass';lp.frequency.value=400;
+  const rg=ac.createGain();rg.gain.value=.12;
+  rum.connect(lp);lp.connect(rg);rg.connect(fireGain);rum.start();
+  const nb=ac.createBuffer(1,ac.sampleRate,ac.sampleRate),nd=nb.getChannelData(0);
+  for(let i=0;i<nd.length;i++)nd[i]=Math.random()*2-1;
+  (function pop(){
+    const s=ac.createBufferSource();s.buffer=nb;
+    const bp=ac.createBiquadFilter();bp.type='bandpass';bp.frequency.value=1500+Math.random()*3500;bp.Q.value=1.2;
+    const g=ac.createGain(),n=ac.currentTime,v=.05+Math.random()*.2;
+    g.gain.setValueAtTime(v,n);g.gain.exponentialRampToValueAtTime(.0001,n+.02+Math.random()*.05);
+    s.connect(bp);bp.connect(g);g.connect(fireGain);s.start(n,Math.random()*.5,.1);
+    setTimeout(pop,60+Math.random()*(Math.random()<.2?900:350));
+  })();
+}
+['click','touchend','keydown'].forEach(ev=>document.addEventListener(ev,startFire));
+$('fire').addEventListener('click',e=>{e.stopPropagation();
+  if(!ac){startFire();return;}
+  fireOn=!fireOn;fireGain.gain.setTargetAtTime(fireOn?FIRE_VOLUME*.5:0,ac.currentTime,.1);
+  try{localStorage.setItem('fire',fireOn?'on':'off');}catch(e){}});
+try{lampOn=localStorage.getItem('lamp')!=='off';lampL=lampOn?1:0;}catch(e){}
+$('lamp').addEventListener('click',e=>{e.stopPropagation();lampOn=!lampOn;
+  try{localStorage.setItem('lamp',lampOn?'on':'off');}catch(e){}});
 function resize(){
   const vw=innerWidth,vh=innerHeight,Hl=Math.max(108,Math.round(192*vh/vw));
   const cw=Hl===108?Math.min(vw,vh*192/108):vw,sc=cw/192;
@@ -174,7 +230,9 @@ function resize(){
   const p=document.createElement('div');p.style.cssText='position:fixed;top:0;padding-top:env(safe-area-inset-top,0px)';
   document.body.appendChild(p);inset=Math.round(p.offsetHeight/sc);p.remove();
   const b=$('search').style;b.left=((W-12)*sc-24)+'px';b.top=((8+inset)*sc-24)+'px';
-  const h=$('hit').style;h.left=52*sc+'px';h.top=(70+oy)*sc+'px';h.width=88*sc+'px';h.height=32*sc+'px';}
+  const h=$('hit').style;h.left=52*sc+'px';h.top=(70+oy)*sc+'px';h.width=88*sc+'px';h.height=32*sc+'px';
+  const f=$('fire').style;f.left=58*sc+'px';f.top=(40+oy)*sc+'px';f.width=48*sc+'px';f.height=30*sc+'px';
+  const l=$('lamp').style;l.left=12*sc+'px';l.top=(38+oy)*sc+'px';l.width=28*sc+'px';l.height=46*sc+'px';}
 addEventListener('resize',resize);resize();
 </script>
 </body>
