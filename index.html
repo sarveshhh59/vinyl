@@ -342,7 +342,7 @@ const s=document.createElement('script');s.src='https://www.youtube.com/iframe_a
 
 /* ===== Fire sound (made in code, no files). Keep low so the music stays on top ===== */
 /* ===== Vinyl surface sound: hiss, dust crackle, a soft thump each turn, needle drop. Only plays while the record spins ===== */
-const VINYL_VOLUME=0.5; /* 0 = off, 1 = louder. Lower it if the crackle is too much. */
+const VINYL_VOLUME=0.2; /* 0 = off, 1 = louder. Lower it if the crackle is too much. */
 let vg=null,needle=()=>{};
 function startVinyl(){
   vg=ac.createGain();vg.gain.value=0;vg.connect(ac.destination);
@@ -352,7 +352,7 @@ function startVinyl(){
   const hiss=ac.createBufferSource();hiss.buffer=buf;hiss.loop=true;
   const hp=ac.createBiquadFilter();hp.type='highpass';hp.frequency.value=3000;
   const lp=ac.createBiquadFilter();lp.type='lowpass';lp.frequency.value=9000;
-  const hg=ac.createGain();hg.gain.value=.05;
+  const hg=ac.createGain();hg.gain.value=.03;
   hiss.connect(hp);hp.connect(lp);lp.connect(hg);hg.connect(vg);hiss.start();
   const tick=(v,f,dur,out)=>{
     const s=ac.createBufferSource();s.buffer=buf;
@@ -363,12 +363,12 @@ function startVinyl(){
   (function crackle(){
     if(speed>.2){
       tick(.1+Math.random()*.3,2000+Math.random()*5000,.004+Math.random()*.012);
-      if(Math.random()<.12)tick(.45+Math.random()*.3,1200+Math.random()*2000,.02);}
+      if(Math.random()<.06)tick(.35+Math.random()*.3,1200+Math.random()*2000,.02);}
     setTimeout(crackle,70+Math.random()*(Math.random()<.25?800:280));
   })();
   (function thump(){
     if(speed>.2){const o=ac.createOscillator(),g=ac.createGain(),n=ac.currentTime;
-      o.frequency.value=55;g.gain.setValueAtTime(.2,n);g.gain.exponentialRampToValueAtTime(.0001,n+.09);
+      o.frequency.value=55;g.gain.setValueAtTime(.07,n);g.gain.exponentialRampToValueAtTime(.0001,n+.09);
       o.connect(g);g.connect(vg);o.start(n);o.stop(n+.1);}
     setTimeout(thump,1800);
   })();
